@@ -314,36 +314,6 @@
     }
     .text-edit-actions button.ok { background: var(--accent); border-color: var(--accent); font-weight: bold; }
 
-    /* ===== Mobile: fixed top controls ===== */
-    @media (max-width: 768px) {
-      body { height: 100dvh; overflow: hidden; }
-      #top-controls {
-        flex-shrink: 0; overflow-y: auto; max-height: 60dvh;
-        scrollbar-width: none;
-      }
-      #top-controls::-webkit-scrollbar { display: none; }
-      #canvas-wrap { flex: 1; min-height: 0; overflow: auto; }
-      /* ヘッダー: 重なり修正 */
-      .header-top { padding: 6px 10px; justify-content: space-between; }
-      .header-top h1 { font-size: .72rem; flex: 1; text-align: center; }
-      #tutorial-open-btn { position: static; transform: none; flex-shrink: 0; }
-      .lang-switch { position: static; transform: none; flex-shrink: 0; gap: 6px; }
-      /* canvas hint */
-      #canvas-hint {
-        top: 72px; left: 50%; transform: translateX(-50%);
-        text-align: center; font-size: .82rem; line-height: 2.1;
-        white-space: normal; width: 88%;
-      }
-      #canvas-hint .ch-title { font-size: .95rem; }
-      /* chart title input */
-      #chart-title-input { min-width: 160px; font-size: .8rem; padding: 4px 10px; }
-      /* Options bar: 2行に */
-      .options-bar { flex-wrap: wrap; padding: 5px 8px; gap: 5px; }
-      .opts-left { flex: 1 1 100%; justify-content: center; gap: 10px; }
-      #save-btn { flex: 1; }
-      .opts-right { flex-shrink: 0; }
-    }
-
     /* ===== Canvas hint & chart title ===== */
     #canvas-hint {
       position: absolute; top: 60px; left: 20px;
@@ -422,6 +392,40 @@
       100% { opacity: 0; }
     }
     /* ===== TUTORIAL CSS END ===== */
+
+    /* ===== Mobile: fixed top controls =====
+       (この @media ブロックは他の同名セレクタのCSSより後ろに置くこと。
+        詳細度が同じセレクタは記述順で後勝ちになるため、前に置くと
+        モバイル用の指定がデスクトップ用の指定に上書きされてしまう) */
+    @media (max-width: 768px) {
+      body { height: 100dvh; overflow: hidden; }
+      #top-controls {
+        flex-shrink: 0; overflow-y: auto; max-height: 60dvh;
+        scrollbar-width: none;
+      }
+      #top-controls::-webkit-scrollbar { display: none; }
+      #canvas-wrap { flex: 1; min-height: 0; overflow: auto; }
+      /* ヘッダー: 重なり修正 */
+      .header-top { padding: 6px 10px; justify-content: space-between; }
+      .header-top h1 { font-size: .72rem; flex: 1; text-align: center; }
+      #tutorial-open-btn { position: static; transform: none; flex-shrink: 0; }
+      .lang-switch { position: static; transform: none; flex-shrink: 0; gap: 6px; }
+      /* canvas hint */
+      #canvas-hint {
+        top: 72px; left: 50%; transform: translateX(-50%);
+        text-align: center; font-size: .82rem; line-height: 2.1;
+        white-space: normal; width: 88%;
+      }
+      #canvas-hint .ch-title { font-size: .95rem; }
+      /* chart title input */
+      #chart-title-wrap { width: 92%; }
+      #chart-title-input { width: 100%; min-width: 0; font-size: .8rem; padding: 4px 10px; }
+      /* Options bar: 2行に */
+      .options-bar { flex-wrap: wrap; padding: 5px 8px; gap: 5px; }
+      .opts-left { flex: 1 1 100%; justify-content: center; gap: 10px; }
+      #save-btn { flex: 1; }
+      .opts-right { flex-shrink: 0; }
+    }
 
   </style>
 </head>
