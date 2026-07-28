@@ -127,7 +127,7 @@
     /* ===== Options bar ===== */
     .options-bar {
       background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 7px 12px; display: flex; align-items: center; flex-shrink: 0; flex-wrap: wrap;
+      padding: 7px 12px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap;
     }
     .opts-left  { display: flex; align-items: center; gap: 12px; flex: 1; }
     .opts-right { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: flex-end; }
@@ -152,11 +152,18 @@
       background: rgba(43,125,224,.15); border-color: #2b7de0; color: var(--text); font-weight: bold;
     }
     #expand-canvas-btn {
+      background: rgba(76,175,80,.16); border: 1px solid #4caf50; border-radius: 6px;
+      padding: 6px 12px; font-family: var(--font); font-size: .8rem; cursor: pointer;
+      color: #2e7d32; font-weight: bold; transition: background .15s, color .15s, border-color .15s; flex-shrink: 0;
+    }
+    #expand-canvas-btn:hover { background: rgba(76,175,80,.28); }
+    #undo-btn, #redo-btn {
       background: none; border: 1px solid var(--border); border-radius: 6px;
       padding: 6px 12px; font-family: var(--font); font-size: .8rem; cursor: pointer;
       color: var(--muted); transition: background .15s, color .15s, border-color .15s; flex-shrink: 0;
     }
-    #expand-canvas-btn:hover { border-color: var(--accent); color: var(--text); }
+    #undo-btn:hover:not(:disabled), #redo-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+    #undo-btn:disabled, #redo-btn:disabled { opacity: .4; cursor: not-allowed; }
 
     /* ===== Canvas wrap ===== */
     #canvas-wrap { flex: 1; overflow: auto; background: var(--bg); padding: 0; min-height: 0; }
@@ -590,8 +597,10 @@
       <button id="group-mode-btn" data-i18n-key="groupMode">□ グループ</button>
       <button id="select-mode-btn" data-i18n-key="selectMode">□ 範囲選択</button>
     </div>
+    <button id="undo-btn" data-i18n-key="undoBtn" disabled>↩ 戻る</button>
     <button id="save-btn" data-i18n-key="saveImage">Save Image</button>
     <button id="expand-canvas-btn" data-i18n-key="expandArea">↓ エリア拡張</button>
+    <button id="redo-btn" data-i18n-key="redoBtn" disabled>↪ 進む</button>
     <div class="opts-right">
       <a href="https://x.com/uko_dayo_" target="_blank" rel="noopener" class="sns-link">
         <img src="https://cdn.jsdelivr.net/gh/uko05/99_SharedImage@main/00_common/footer_icon/twitter_image.png" alt="Twitter">
@@ -700,6 +709,7 @@
         title:'原神・スタレの相関図メーカー', genshinTab:'原神', starrailTab:'崩壊：スターレイル',
         sonotaTab:'その他', straight:'直線', elbow:'カクカク', saveImage:'Save Image',
         anyImage:'任意', groupMode:'□ グループ', selectMode:'□ 範囲選択', expandArea:'↓ エリア拡張',
+        undoBtn:'↩ 戻る', redoBtn:'↪ 進む',
         hi:'炎', mizu:'水', koori:'氷', kaminari:'雷', kusa:'草', kaze:'風', iwa:'岩',
         kyosuu:'虚数', ryoushi:'量子', butsuri:'物理',
         inputBtn:'✏ 入力', deleteBtn:'🗑 削除', bidirBtn:'⇄ 逆矢印を追加',
@@ -713,6 +723,7 @@
         title:'Genshin/StarRail Relation Chart', genshinTab:'Genshin', starrailTab:'Honkai: Star Rail',
         sonotaTab:'Other', straight:'Straight', elbow:'Elbow', saveImage:'Save Image',
         anyImage:'Custom', groupMode:'□ Group', selectMode:'□ Select', expandArea:'↓ Expand Area',
+        undoBtn:'↩ Undo', redoBtn:'↪ Redo',
         hi:'Fire', mizu:'Hydro', koori:'Ice', kaminari:'Lightning', kusa:'Dendro', kaze:'Wind', iwa:'Geo',
         kyosuu:'Imaginary', ryoushi:'Quantum', butsuri:'Physical',
         inputBtn:'✏ Label', deleteBtn:'🗑 Delete', bidirBtn:'⇄ Add Reverse Arrow',
@@ -777,6 +788,8 @@ let iState          = 'idle';
     let selectedArrowIds = new Set();
     let multiSelectToolbar   = null;
     let suppressNextSelectClear = false;
+    let undoSnapshot = null;
+    let redoSnapshot = null;
 
     const canvasArea     = document.getElementById('canvas-area');
     const canvasWrap     = document.getElementById('canvas-wrap');
@@ -839,6 +852,7 @@ let iState          = 'idle';
         if (!popupTarget || popupTarget.type !== 'group') return;
         const grp = groups.find(g => g.id === popupTarget.id);
         if (!grp) return;
+        pushUndoSnapshot();
         grp.colorIdx = idx;
         applyGroupColor(grp);
         swatchContainer.querySelectorAll('.color-swatch').forEach((s, i) => s.classList.toggle('active', i === idx));
@@ -1020,6 +1034,7 @@ let iState          = 'idle';
           const r = canvasArea.getBoundingClientRect();
           const x = ev.clientX - r.left + canvasWrap.scrollLeft - 40;
           const y = ev.clientY - r.top  + canvasWrap.scrollTop  - 40;
+          pushUndoSnapshot();
           placeItem(tabPlacing.src, tabPlacing.name, Math.max(4, x), Math.max(4, y));
         }
         iState = 'idle'; tabPlacing = null;
@@ -1164,6 +1179,7 @@ let iState          = 'idle';
         if (Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > DRAG_THRESHOLD) {
           clearTimeout(pressTimer);
           iState = 'dragging-item'; draggingId = pressStart.itemId;
+          pushUndoSnapshot();
         }
       }
       if (iState === 'dragging-item') {
@@ -1232,10 +1248,12 @@ let iState          = 'idle';
           const isCollinear = srcArrow && (targetId === srcArrow.fromId || targetId === srcArrow.toId);
           if (!isCollinear) {
             const lineType = document.querySelector('input[name="linetype"]:checked')?.value || 'straight';
+            pushUndoSnapshot();
             arrows.push({ id:`arrow-${nextArrowId++}`, fromId:null, fromArrowId:srcArrowId, fromT:srcArrowPt.t, fromSide:null, toId:targetId, toSide:targetSide, text:'', lineType, hasArrow:true });
             redrawArrows();
           }
         } else if (src && targetId && targetId !== src) {
+          pushUndoSnapshot();
           createArrow(src, targetId, { fromSide: srcSide, toSide: targetSide });
         }
       }
@@ -1720,6 +1738,7 @@ let iState          = 'idle';
     });
     popupDeleteBtn.addEventListener('click', () => {
       if (!popupTarget) return;
+      pushUndoSnapshot();
       if (popupTarget.type === 'item')  deleteItem(popupTarget.id);
       else if (popupTarget.type === 'arrow') deleteArrow(popupTarget.id);
       else if (popupTarget.type === 'group') deleteGroup(popupTarget.id);
@@ -1764,7 +1783,9 @@ let iState          = 'idle';
         e.preventDefault(); e.stopPropagation();
         const startX = e.clientX, startY = e.clientY;
         const origX = grp.x, origY = grp.y;
+        let snapped = false;
         const onMove = ev => {
+          if (!snapped) { pushUndoSnapshot(); snapped = true; }
           grp.x = Math.max(0, origX + ev.clientX - startX);
           grp.y = Math.max(0, origY + ev.clientY - startY);
           el.style.left = grp.x + 'px'; el.style.top = grp.y + 'px';
@@ -1798,7 +1819,9 @@ let iState          = 'idle';
           h.setPointerCapture(e.pointerId);
           const startX = e.clientX, startY = e.clientY;
           const orig = { x: grp.x, y: grp.y, w: grp.w, h: grp.h };
+          let snapped = false;
           const onMove = ev => {
+            if (!snapped) { pushUndoSnapshot(); snapped = true; }
             const dx = ev.clientX - startX, dy = ev.clientY - startY;
             if (dir.includes('e')) grp.w = Math.max(60, orig.w + dx);
             if (dir.includes('s')) grp.h = Math.max(40, orig.h + dy);
@@ -1832,6 +1855,7 @@ let iState          = 'idle';
     popupGroupBorderBtn.addEventListener('click', () => {
       if (!popupTarget || popupTarget.type !== 'group') return;
       const grp = groups.find(g => g.id === popupTarget.id); if (!grp) return;
+      pushUndoSnapshot();
       grp.hideBorder = !grp.hideBorder;
       const el = document.getElementById(grp.id); if (el) el.style.borderColor = grp.hideBorder ? 'transparent' : GROUP_COLORS[grp.colorIdx ?? 0].border;
       popupGroupBorderBtn.textContent = grp.hideBorder ? '枠を表示' : '枠を非表示';
@@ -1841,6 +1865,7 @@ let iState          = 'idle';
     popupGroupLabelBtn.addEventListener('click', () => {
       if (!popupTarget || popupTarget.type !== 'group') return;
       const grp = groups.find(g => g.id === popupTarget.id); if (!grp) return;
+      pushUndoSnapshot();
       grp.hideLabel = !grp.hideLabel;
       const el = document.getElementById(grp.id);
       const lbl = el?.querySelector('.group-label'); if (lbl) lbl.style.display = grp.hideLabel ? 'none' : '';
@@ -1851,7 +1876,7 @@ let iState          = 'idle';
     popupBidirBtn.addEventListener('click', () => {
       if (!popupTarget || popupTarget.type !== 'arrow') return;
       const arrow = arrows.find(a => a.id === popupTarget.id);
-      if (arrow) createArrow(arrow.toId, arrow.fromId, { lineType: arrow.lineType, hasArrow: arrow.hasArrow, fromSide: arrow.toSide, toSide: arrow.fromSide });
+      if (arrow) { pushUndoSnapshot(); createArrow(arrow.toId, arrow.fromId, { lineType: arrow.lineType, hasArrow: arrow.hasArrow, fromSide: arrow.toSide, toSide: arrow.fromSide }); }
       closePopup();
     });
 
@@ -1860,6 +1885,7 @@ let iState          = 'idle';
       if (!popupTarget || popupTarget.type !== 'arrow') return;
       const arrow = arrows.find(a => a.id === popupTarget.id);
       if (arrow) {
+        pushUndoSnapshot();
         arrow.hasArrow = !arrow.hasArrow;
         redrawArrows();
         const d = i18n[currentLang] || i18n.ja;
@@ -1874,6 +1900,7 @@ let iState          = 'idle';
       if (!popupTarget || popupTarget.type !== 'arrow') return;
       const arrow = arrows.find(a => a.id === popupTarget.id);
       if (arrow) {
+        pushUndoSnapshot();
         [arrow.fromId,   arrow.toId  ] = [arrow.toId,   arrow.fromId  ];
         [arrow.fromSide, arrow.toSide] = [arrow.toSide, arrow.fromSide];
         redrawArrows();
@@ -1886,6 +1913,7 @@ let iState          = 'idle';
       if (!popupTarget || popupTarget.type !== 'arrow') return;
       const arrow = arrows.find(a => a.id === popupTarget.id);
       if (arrow) {
+        pushUndoSnapshot();
         arrow.lineType = arrow.lineType === 'elbow' ? 'straight' : 'elbow';
         redrawArrows();
         const d = i18n[currentLang] || i18n.ja;
@@ -1905,6 +1933,7 @@ let iState          = 'idle';
       if (!popupTarget || popupTarget.type !== 'arrow') return;
       const arrow = arrows.find(a => a.id === popupTarget.id);
       if (arrow) {
+        pushUndoSnapshot();
         arrow.bends = (arrow.bends ?? 1) === 1 ? 2 : 1;
         redrawArrows();
         const d = i18n[currentLang] || i18n.ja;
@@ -1916,12 +1945,12 @@ let iState          = 'idle';
     popupMenu.querySelector('#popup-enlarge-btn').addEventListener('click', () => {
       if (!popupTarget || popupTarget.type !== 'item') return;
       const item = placedItems.find(i => i.id === popupTarget.id);
-      if (item) { item.scale = Math.min(4.0, (item.scale || 1) * 1.25); applyItemSize(item.id); }
+      if (item) { pushUndoSnapshot(); item.scale = Math.min(4.0, (item.scale || 1) * 1.25); applyItemSize(item.id); }
     });
     popupMenu.querySelector('#popup-shrink-btn').addEventListener('click', () => {
       if (!popupTarget || popupTarget.type !== 'item') return;
       const item = placedItems.find(i => i.id === popupTarget.id);
-      if (item) { item.scale = Math.max(0.3, (item.scale || 1) / 1.25); applyItemSize(item.id); }
+      if (item) { pushUndoSnapshot(); item.scale = Math.max(0.3, (item.scale || 1) / 1.25); applyItemSize(item.id); }
     });
 
     // ===== Text edit =====
@@ -1947,6 +1976,8 @@ let iState          = 'idle';
     }
     function applyTextEdit() {
       if (!textEditTarget) return;
+      // 新規グループのラベル入力は「グループ作成」自体のスナップショットを温存する
+      if (!textEditIsNewGroup) pushUndoSnapshot();
       const val = textEditInput.value;
       if (textEditTarget.type === 'item') {
         const item = placedItems.find(i => i.id === textEditTarget.id);
@@ -2007,8 +2038,60 @@ let iState          = 'idle';
       if (needH > canvasArea.offsetHeight) canvasArea.style.minHeight = needH + 'px';
     }
 
+    // ===== ⑤ Undo / Redo（1段のみ）=====
+    const undoBtn = document.getElementById('undo-btn');
+    const redoBtn = document.getElementById('redo-btn');
+
+    function cloneState() {
+      return {
+        placedItems: JSON.parse(JSON.stringify(placedItems)),
+        arrows:      JSON.parse(JSON.stringify(arrows)),
+        groups:      JSON.parse(JSON.stringify(groups)),
+      };
+    }
+    function pushUndoSnapshot() {
+      undoSnapshot = cloneState();
+      redoSnapshot = null;
+      updateUndoRedoButtons();
+    }
+    function updateUndoRedoButtons() {
+      if (undoBtn) undoBtn.disabled = !undoSnapshot;
+      if (redoBtn) redoBtn.disabled = !redoSnapshot;
+    }
+    function rebuildCanvasFromState() {
+      clearMultiSelection();
+      exitGroupEditMode();
+      closePopup(); closeTextEdit();
+      canvasArea.querySelectorAll('.placed-item, .group-box').forEach(el => el.remove());
+      groups.forEach(grp => { const el = createGroupEl(grp); canvasArea.insertBefore(el, arrowSvg); });
+      placedItems.forEach(item => canvasArea.appendChild(createItemEl(item)));
+      redrawArrows();
+      let maxX = 0, maxY = 0;
+      placedItems.forEach(it => { maxX = Math.max(maxX, it.x + dW(it) + 20); maxY = Math.max(maxY, it.y + iSz(it) + 40); });
+      groups.forEach(g => { maxX = Math.max(maxX, g.x + g.w + 20); maxY = Math.max(maxY, g.y + g.h + 30); });
+      if (maxX || maxY) growCanvas(maxX, maxY);
+    }
+    function undo() {
+      if (!undoSnapshot) return;
+      redoSnapshot = cloneState();
+      ({ placedItems, arrows, groups } = undoSnapshot);
+      undoSnapshot = null;
+      rebuildCanvasFromState();
+      updateUndoRedoButtons();
+    }
+    function redo() {
+      if (!redoSnapshot) return;
+      undoSnapshot = cloneState();
+      ({ placedItems, arrows, groups } = redoSnapshot);
+      redoSnapshot = null;
+      rebuildCanvasFromState();
+      updateUndoRedoButtons();
+    }
+    undoBtn?.addEventListener('click', undo);
+    redoBtn?.addEventListener('click', redo);
+
     // ===== ② エリアを下に拡張（PC/iPad向け）=====
-    const EXPAND_STEP = 500;
+    const EXPAND_STEP = 250;
     document.getElementById('expand-canvas-btn')?.addEventListener('click', () => {
       const needH = canvasArea.offsetHeight + EXPAND_STEP;
       canvasArea.style.minHeight = needH + 'px';
@@ -2024,6 +2107,7 @@ let iState          = 'idle';
       if (groupMode && selectMode) {
         selectMode = false; selectModeBtn.classList.remove('active'); canvasArea.classList.remove('select-draw-mode');
       }
+      if (groupMode) clearMultiSelection();
     });
 
     // ===== ④ 範囲選択機能 =====
@@ -2089,6 +2173,7 @@ let iState          = 'idle';
     }
 
     function deleteMultiSelection() {
+      pushUndoSnapshot();
       selectedItemIds.forEach(id => deleteItem(id));
       selectedGroupIds.forEach(id => deleteGroup(id));
       selectedArrowIds.forEach(id => deleteArrow(id));
@@ -2130,7 +2215,8 @@ let iState          = 'idle';
     let selectPreview = null, selectDrawStart = null;
     canvasArea.addEventListener('pointerdown', e => {
       if (!selectMode) return;
-      if (e.target.closest('.placed-item') || e.target.closest('.group-label') || e.target.closest('.group-box') || e.target.closest('.arrow-group')) return;
+      if (e.target.closest('.placed-item') || e.target.closest('.group-label') || e.target.closest('.group-box')
+          || e.target.closest('.arrow-group') || e.target.closest('#multi-select-toolbar')) return;
       e.preventDefault();
       const rect = canvasArea.getBoundingClientRect();
       const sx = e.clientX - rect.left + canvasWrap.scrollLeft;
@@ -2165,12 +2251,12 @@ let iState          = 'idle';
         const w = Math.abs(cx - selectDrawStart.sx), h = Math.abs(cy - selectDrawStart.sy);
         selectDrawStart = null;
 
-        selectMode = false; selectModeBtn.classList.remove('active'); canvasArea.classList.remove('select-draw-mode');
+        if (w < 10 || h < 10) return; // too small, ignore (leaves select mode ON)
+
         suppressNextSelectClear = true;
         setTimeout(() => { suppressNextSelectClear = false; }, 0);
-
-        if (w < 10 || h < 10) return; // too small, ignore
         performRangeSelect(x, y, w, h);
+        // ④ 範囲選択ボタンを再度押すまでモードを維持する
       };
       document.addEventListener('pointermove', onMove, { passive: true });
       document.addEventListener('pointerup',   onUp);
@@ -2199,9 +2285,11 @@ let iState          = 'idle';
         if (g) groupOrigs.set(id, { x: g.x, y: g.y });
       });
       if (multiSelectToolbar) multiSelectToolbar.style.display = 'none';
+      let snapped = false;
 
       const onMove = ev => {
         const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        if (!snapped) { pushUndoSnapshot(); snapped = true; }
         itemOrigs.forEach((orig, id) => {
           const it = placedItems.find(i => i.id === id); if (!it) return;
           it.x = Math.max(4, orig.x + dx); it.y = Math.max(4, orig.y + dy);
@@ -2278,6 +2366,7 @@ function createGroupEl(grp) {
         const onMove = ev => {
           const dx = ev.clientX - startX, dy = ev.clientY - startY;
           if (!moved && Math.hypot(dx, dy) < 4) return;
+          if (!moved) pushUndoSnapshot();
           moved = true;
           grp.x = Math.max(0, origX + dx); grp.y = Math.max(0, origY + dy);
           el.style.left = grp.x + 'px';   el.style.top  = grp.y + 'px';
@@ -2312,7 +2401,8 @@ function createGroupEl(grp) {
 
     canvasArea.addEventListener('pointerdown', e => {
       if (!groupMode) return;
-      if (e.target.closest('.placed-item') || e.target.closest('.group-label') || e.target.closest('.group-box')) return;
+      if (e.target.closest('.placed-item') || e.target.closest('.group-label') || e.target.closest('.group-box')
+          || e.target.closest('#multi-select-toolbar')) return;
       e.preventDefault();
       const rect = canvasArea.getBoundingClientRect();
       const sx = e.clientX - rect.left + canvasWrap.scrollLeft;
@@ -2348,6 +2438,7 @@ function createGroupEl(grp) {
         groupDrawStart = null;
 
         if (w < 40 || h < 30) return; // too small, ignore
+        pushUndoSnapshot();
         const id  = `group-${nextGroupId++}`;
         const grp = { id, x, y, w, h, label: 'グループ', colorIdx: 0, hideBorder: false, hideLabel: false };
         groups.push(grp);
